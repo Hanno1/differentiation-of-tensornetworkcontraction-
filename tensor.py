@@ -1,7 +1,11 @@
 import torch
+import time
+import random
+import itertools as it
 
 
 def get_torch_tensor(tensor, axis, max_axis = 1):
+    axis = sorted(axis)
     if len(axis) == 0:
         dimension_list = [1 for _ in range(max_axis)]
         return tensor.reshape(tuple(dimension_list))
@@ -16,18 +20,28 @@ def get_torch_tensor(tensor, axis, max_axis = 1):
     dimension_tuple = tuple(dimension_list)
     return tensor.reshape(dimension_tuple)
 
-def full_contraction_easy(simple_tensors, tn, tn_axis):
+def full_contraction_easy(simple_tensors, tn, tn_axis, t=False):
     reshaped_tn = [get_torch_tensor(tn[t], tn_axis[t]) for t in range(len(tn))]
     c = combine(reshaped_tn)
     a = aggregate(c)
+    if t:
+        start = time.time()
+        a.backward()
+        end = time.time()
+        return [simple_tensors[t].grad for t in range(len(simple_tensors))], end - start
     a.backward()
     return [simple_tensors[t].grad for t in range(len(simple_tensors))]
 
-def full_contraction_complicated(simple_tensors, tn, tn_axis, max_axis):
+def full_contraction_complicated(simple_tensors, tn, tn_axis, max_axis, t=False):
     tn = [get_torch_tensor(tn[t], tn_axis[t]) for t in range(len(tn))]
     for i in range(1, max_axis + 1):
         tn, tn_axis = combine_axis(tn, tn_axis, i)
         tn, tn_axis = aggregate_axis(tn, tn_axis, i, max_axis)
+    if t:
+        start = time.time()
+        tn[-1].backward()
+        end = time.time()
+        return [simple_tensors[t].grad for t in range(len(simple_tensors))], end - start
     tn[-1].backward()
     return [simple_tensors[t].grad for t in range(len(simple_tensors))]
 
@@ -79,19 +93,61 @@ def aggregate_axis(tn, tn_axis, axis, max_axis):
     tn.append(t)
     return tn, tn_axis
 
+def create_tensornetwork(max_axis, lower=-10, upper=10):
+    # create big tensornetwork
+    axis_list = [str(i + 1) for i in range(max_axis)]
+
+    # create 2 dimensional tensors
+    tn = []
+    tn_axis = []
+    simple_tensors = []
+    for i in range(max_axis):
+        t = torch.tensor([0, random.randint(lower, upper)], dtype=torch.float32, requires_grad=True)
+        tn.append(t)
+        simple_tensors.append(t)
+        tn_axis.append([i + 1])
+
+    # create 3 dimensional tensors
+    for i in range(2, 10):
+        comb = list(it.combinations(axis_list, i))
+        for p in comb:
+            l = [0 for _ in range(2**i)]
+            l[-1] = random.randint(lower, upper)
+            t = torch.tensor(l, dtype=torch.float32, requires_grad=True)
+            tn.append(t)
+
+            axis = [int(i) for i in list(p)]
+            tn_axis.append(axis)
+
+    return simple_tensors, tn, tn_axis
+
+def compare_algorithms(n, max_axis):
+    t_1 = 0
+    d_1 = 0
+    t_2 = 0
+    d_2 = 0
+    for i in range(n):
+        print("Starting Iteration ", i)
+        simple_tensors, tn, tn_axis = create_tensornetwork(max_axis)
+
+        start = time.time()
+        _, deriv_1 = full_contraction_easy(simple_tensors, tn, tn_axis, t=True)
+        end = time.time()
+        d_1 += deriv_1
+        t_1 += end - start
+
+        start = time.time()
+        _, deriv_2 = full_contraction_complicated(simple_tensors, tn, tn_axis, max_axis, t=True)
+        end = time.time()
+        d_2 += deriv_2
+        t_2 += end - start
+
+    t_1 /= n    
+    t_2 /= n
+    d_1 /= n
+    d_2 /= n
+
+    return t_1, d_1, t_2, d_2
+
 if __name__ == "__main__":
-    t_1 = torch.tensor([0, 3], dtype=torch.float, requires_grad=True)
-    t_2 = torch.tensor([0, 2], dtype=torch.float, requires_grad=True)
-    t_12 = torch.tensor([0, 0, 0, -4], dtype=torch.float, requires_grad=True)
-
-    x_1 = get_torch_tensor(t_1, [1])
-    x_2 = get_torch_tensor(t_2, [2])
-    x_12 = get_torch_tensor(t_12, [1, 2])
-
-    c = combine([x_1, x_2, x_12])
-    a = aggregate(c)
-
-    a.backward()
-
-    print(t_1.grad)
-    print(t_2.grad)
+    compare_algorithms(1, 8)
