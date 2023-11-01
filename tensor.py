@@ -87,17 +87,23 @@ def aggregate_axis(tn, tn_axis, axis, max_axis):
     tn_axis[-1].remove(axis)
 
     # aggregate over axis
-    t = torch.max(t, max_axis - axis).values
+    # get max axis in tensor
+    a = len(t.shape)
+    # t = torch.max(t, max_axis - axis).values
+    t = torch.max(t, a - axis).values
     t = get_torch_tensor(t, tn_axis[-1])
 
     tn.append(t)
     return tn, tn_axis
 
-def create_tensornetwork(max_axis, lower=-10, upper=10):
+def create_full_tensornetwork(max_axis, max_range=None, lower=-10, upper=10):
     # create big tensornetwork
     axis_list = [str(i + 1) for i in range(max_axis)]
 
-    # create 2 dimensional tensors
+    if max_range is None:
+        max_range = max_axis
+
+    # create 1 dimensional tensors
     tn = []
     tn_axis = []
     simple_tensors = []
@@ -107,8 +113,8 @@ def create_tensornetwork(max_axis, lower=-10, upper=10):
         simple_tensors.append(t)
         tn_axis.append([i + 1])
 
-    # create 3 dimensional tensors
-    for i in range(2, 10):
+    # create 2 dimensional tensors
+    for i in range(2, max_range + 1):
         comb = list(it.combinations(axis_list, i))
         for p in comb:
             l = [0 for _ in range(2**i)]
@@ -121,14 +127,35 @@ def create_tensornetwork(max_axis, lower=-10, upper=10):
 
     return simple_tensors, tn, tn_axis
 
-def compare_algorithms(n, max_axis):
+def create_sparse_tensornetwork(max_axis, lower=-10, upper=10):
+    # create 1 dimensional tensors
+    tn = []
+    tn_axis = []
+    simple_tensors = []
+    for i in range(max_axis):
+        t = torch.tensor([0, random.randint(lower, upper)], dtype=torch.float32, requires_grad=True)
+        tn.append(t)
+        simple_tensors.append(t)
+        tn_axis.append([i + 1])
+
+    # create 2 dimenstional tensors -> axis that will be connected: 1,2 . 2,3 . 3,4 ...
+    for axis in range(1, max_axis):
+        l = [0 for _ in range(2**2)]
+        l[-1] = random.randint(lower, upper)
+        t = torch.tensor(l, dtype=torch.float32, requires_grad=True)
+        tn.append(t)
+        tn_axis.append([axis, axis + 1])
+    return simple_tensors, tn, tn_axis
+    
+
+def compare_algorithms(n, max_axis, create_tn):
     t_1 = 0
     d_1 = 0
     t_2 = 0
     d_2 = 0
     for i in range(n):
         print("Starting Iteration ", i)
-        simple_tensors, tn, tn_axis = create_tensornetwork(max_axis)
+        simple_tensors, tn, tn_axis = create_tn(max_axis)
 
         start = time.time()
         _, deriv_1 = full_contraction_easy(simple_tensors, tn, tn_axis, t=True)
